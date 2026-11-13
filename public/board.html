@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>อันดับรวม | เกมทบทวนมวยไทย</title><link rel="stylesheet" href="/style.css"><script src="/app.js"></script></head>
+<body>
+<main class="wrap" style="max-width:820px">
+  <div class="row" style="justify-content:space-between"><h1>🏆 อันดับรวม</h1><button class="btn ghost" id="rf">รีเฟรช</button></div>
+  <p class="muted" style="margin-top:-8px">เรียงตามคะแนนสะสม (ผลดีที่สุดของแต่ละด่านรวมกัน) แล้วตามจำนวนดาว · แสดง 50 อันดับแรก</p>
+  <div id="me"></div><div id="t"><p class="state-msg">กำลังโหลด…</p></div>
+</main>
+<script>
+MT.nav('board'); const E = MT.esc;
+async function load() {
+  const p = MT.me();
+  try {
+    const j = await MT.api('leaderboard' + (p ? '?sid=' + encodeURIComponent(p.sid) : ''));
+    MT.$('#me').innerHTML = j.me ? `<div class="card row" style="justify-content:space-between;margin-bottom:12px"><div>อันดับของคุณ <b style="font-size:26px">${j.me.rank}</b> / ${j.total}</div><div>★ ${j.me.stars} · ${j.me.points} คะแนน · ${E(j.me.title)}</div></div>` : '';
+    MT.$('#t').innerHTML = j.top.length ? `<table><tr><th class="rank">#</th><th>ชื่อเล่น</th><th>เลเวล</th><th>ดาว</th><th>คะแนน</th></tr>${j.top.map(r => `<tr class="${r.me ? 'me' : ''}"><td class="rank">${r.rank <= 3 ? `<span class="medal">${['🥇', '🥈', '🥉'][r.rank - 1]}</span>` : r.rank}</td><td>${E(r.nick)} <span class="small muted">${E(r.tag)}</span></td><td><span class="pill">Lv.${r.level} ${E(r.title)}</span></td><td>★ ${r.stars}</td><td><b>${r.points}</b></td></tr>`).join('')}</table>` : '<div class="card center">ยังไม่มีผู้เล่น เริ่มฝึกเพื่อเป็นคนแรกบนตาราง!</div>';
+  } catch (e) { MT.$('#t').innerHTML = `<p class="err">${E(e.message)}</p>`; }
+}
+MT.$('#rf').onclick = load; load();
+</script>
+</body></html>

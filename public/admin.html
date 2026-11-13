@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>อาจารย์ผู้ดูแล | เกมทบทวนมวยไทย</title><link rel="stylesheet" href="/style.css"><script src="/app.js"></script></head>
+<body>
+<main class="wrap" id="app"></main>
+<script>
+MT.nav('admin'); const app = MT.$('#app'); const E = MT.esc;
+let TOK = MT.adminTok(); const A = (p, b) => MT.api(p, b, { token: TOK });
+const fmt = t => t ? new Date(t).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
+function login(msg = '') {
+  app.innerHTML = `<div class="card" style="max-width:420px;margin:30px auto"><h2>อาจารย์ผู้ดูแลเกม</h2><form id="f"><label>รหัสผ่าน</label><input type="password" id="pw" autocomplete="current-password"><p class="err">${E(msg)}</p><button class="btn big" style="width:100%">เข้าสู่ระบบ</button></form></div>`;
+  MT.$('#f').onsubmit = async e => { e.preventDefault(); try { TOK = (await MT.api('admin/login', { password: MT.$('#pw').value })).token; MT.setAdminTok(TOK); main(); } catch (x) { login(x.message); } };
+}
+async function dl(path, name) { try { const r = await MT.api(path, undefined, { token: TOK, raw: true }); const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = name; a.click(); } catch (e) { MT.toast(e.message); } }
+let tab = 'prog';
+function main() {
+  if (!TOK) return login();
+  app.innerHTML = `<div class="row" style="justify-content:space-between"><h1>แผงอาจารย์ผู้ดูแลเกม</h1><div class="row"><a class="btn gold big" href="/host.html">⚡ เปิดจอเกมสด</a><button class="btn ghost" id="out">ออกจากระบบ</button></div></div>
+    <div class="tabs"><button data-t="prog">ความก้าวหน้าผู้เล่น</button><button data-t="games">ประวัติเกมสด</button><button data-t="manage">จัดการข้อมูล</button></div><div id="body"></div>`;
+  MT.$('#out').onclick = () => { MT.setAdminTok(null); TOK = null; login(); };
+  app.querySelectorAll('.tabs button').forEach(b => { b.classList.toggle('on', b.dataset.t === tab); b.onclick = () => { tab = b.dataset.t; main(); }; });
+  ({ prog, games, manage })[tab]();
+}
+const fail = e => { if (e.status === 401) { MT.setAdminTok(null); TOK = null; login('กรุณาเข้าสู่ระบบใหม่'); } else MT.$('#body').innerHTML = `<p class="err">${E(e.message)}</p>`; };
+async function prog() {
+  const b = MT.$('#body'); b.innerHTML = '<p>กำลังโหลด…</p>';
+  let j; try { j = await A('admin/progress'); } catch (e) { return fail(e); }
+  const done = j.rows.filter(r => r.plays > 0).length;
+  b.innerHTML = `<div class="grid g3" style="margin-bottom:12px"><div class="card"><div class="muted small">ผู้เล่นทั้งหมด</div><b style="font-size:30px">${j.rows.length}</b></div><div class="card"><div class="muted small">เคยฝึกอย่างน้อย 1 ด่าน</div><b style="font-size:30px">${done}</b></div><div class="card"><div class="muted small">ดาวเฉลี่ย (จาก ${j.maxStars})</div><b style="font-size:30px">${done ? (j.rows.reduce((s, r) => s + r.stars, 0) / done).toFixed(1) : 0}</b></div></div>
+    <div class="row" style="margin-bottom:10px"><input id="q" placeholder="ค้นหารหัสนักศึกษา / ชื่อเล่น" style="flex:1;min-width:200px"><button class="btn gold" id="csv">ดาวน์โหลด CSV (รายด่าน)</button></div>
+    <div style="overflow:auto"><table id="tb"></table></div>`;
+  const draw = () => { const q = MT.$('#q').value.trim().toLowerCase(); MT.$('#tb').innerHTML = `<tr><th class="rank">#</th><th>รหัสนักศึกษา</th><th>ชื่อเล่น</th><th>เลเวล</th><th>ดาว</th><th>คะแนน</th><th>เล่น (ครั้ง)</th><th>ล่าสุด</th><th></th></tr>` + j.rows.map((r, i) => ({ r, i })).filter(({ r }) => !q || r.sid.toLowerCase().includes(q) || r.nick.toLowerCase().includes(q)).map(({ r, i }) => `<tr><td class="rank">${i + 1}</td><td>${E(r.sid)}</td><td>${E(r.nick)}</td><td>${E(r.title)}</td><td>★ ${r.stars}</td><td>${r.points}</td><td>${r.plays}</td><td class="small">${fmt(r.updated)}</td><td><button class="btn ghost" style="padding:4px 10px" data-reset="${E(r.sid)}">ล้างผล</button></td></tr>`).join('');
+    b.querySelectorAll('[data-reset]').forEach(x => x.onclick = async () => { if (!confirm('ล้างดาวและคะแนนของ ' + x.dataset.reset + ' ?')) return; try { await A('admin/reset', { sid: x.dataset.reset }); prog(); } catch (e) { fail(e); } }); };
+  MT.$('#q').oninput = draw; draw();
+  MT.$('#csv').onclick = () => dl('admin/progress?format=csv', 'game-progress.csv');
+}
+async function games() {
+  const b = MT.$('#body'); b.innerHTML = '<p>กำลังโหลด…</p>';
+  let j; try { j = await A('admin/games'); } catch (e) { return fail(e); }
+  const st = { lobby: 'รอผู้เล่น', ended: 'จบแล้ว' };
+  b.innerHTML = j.games.length ? `<div style="overflow:auto"><table><tr><th>PIN</th><th>สร้างเมื่อ</th><th>บท</th><th>ข้อ</th><th>ผู้เล่น</th><th>3 อันดับแรก</th><th>สถานะ</th><th></th></tr>${j.games.map(g => `<tr><td><b>${g.pin}</b></td><td class="small">${fmt(g.created)}</td><td>${g.chapters.join(', ')}</td><td>${g.count}</td><td>${g.players ?? '-'}</td><td class="small">${(g.top || []).map(t => E(t.nick) + ' (' + t.score + ')').join(', ')}</td><td>${st[g.state] || 'กำลังเล่น'}</td><td class="row"><a class="btn ghost" style="padding:4px 10px" href="/host.html?pin=${g.pin}">เปิดจอ</a><button class="btn ghost" style="padding:4px 10px" data-csv="${g.pin}">CSV</button></td></tr>`).join('')}</table></div>` : '<div class="card">ยังไม่มีเกมสด</div>';
+  b.querySelectorAll('[data-csv]').forEach(x => x.onclick = () => dl('admin/game-csv?pin=' + x.dataset.csv, 'live-' + x.dataset.csv + '.csv'));
+}
+function manage() {
+  MT.$('#body').innerHTML = `<div class="card"><h3>ล้างผลการฝึกทั้งหมด (เริ่มภาคเรียนใหม่)</h3><p class="muted">ลบดาว คะแนน และตารางอันดับของทุกคน ไม่สามารถกู้คืนได้ ควรดาวน์โหลด CSV เก็บไว้ก่อน</p>
+    <label><input type="checkbox" id="rp"> ลบรายชื่อผู้เล่นด้วย</label>
+    <label>พิมพ์ “ยืนยันล้างทั้งหมด” เพื่อยืนยัน</label><input id="cf"><p class="err" id="er"></p><button class="btn" id="go">ล้างข้อมูล</button></div>
+    <div class="card" style="margin-top:14px"><h3>เปลี่ยนรหัสผ่านอาจารย์</h3><p class="muted small">ตั้งค่า Environment variable ชื่อ <b>ADMIN_PASSWORD</b> ใน Netlify (Site configuration → Environment variables) แล้ว Deploy ใหม่ ระบบจะใช้รหัสใหม่แทนรหัสเริ่มต้น</p></div>`;
+  MT.$('#go').onclick = async () => { try { await A('admin/reset', { all: MT.$('#cf').value.trim(), removePlayers: MT.$('#rp').checked }); MT.toast('ล้างข้อมูลแล้ว'); tab = 'prog'; main(); } catch (e) { if (e.status === 401) return fail(e); MT.$('#er').textContent = e.message; } };
+}
+main();
+</script>
+</body></html>

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>จอเกมสด (อาจารย์) | เกมทบทวนมวยไทย</title><link rel="stylesheet" href="/style.css"><script src="/app.js"></script></head>
+<body>
+<main class="wrap" id="app" style="max-width:1200px"></main>
+<script>
+MT.nav('admin');
+const app = MT.$('#app'); const E = MT.esc;
+let TOK = MT.adminTok(), PIN = new URLSearchParams(location.search).get('pin') || '', R = null, timer = null, tick = null, key = '', busy = false, autoT = null;
+const A = (p, b) => MT.api(p, b, { token: TOK });
+
+function login(msg = '') {
+  app.innerHTML = `<div class="card" style="max-width:420px;margin:30px auto"><h2>อาจารย์ผู้ดูแลเกม</h2><form id="f"><label>รหัสผ่าน</label><input type="password" id="pw" autocomplete="current-password"><p class="err">${E(msg)}</p><button class="btn big" style="width:100%">เข้าสู่ระบบ</button></form></div>`;
+  MT.$('#f').onsubmit = async e => { e.preventDefault(); try { TOK = (await MT.api('admin/login', { password: MT.$('#pw').value })).token; MT.setAdminTok(TOK); boot(); } catch (x) { login(x.message); } };
+}
+async function boot() {
+  if (!TOK) return login();
+  if (PIN) return poll();
+  let meta; try { meta = await A('admin/meta'); } catch (e) { MT.setAdminTok(null); TOK = null; return login(e.status === 401 ? '' : e.message); }
+  app.innerHTML = `<h1>⚡ สร้างเกมสด</h1><div class="card">
+    <label>เลือกบท</label><div class="checks">${meta.map.map(c => `<label><input type="checkbox" name="ch" value="${c.ch}" checked> บทที่ ${c.ch}${c.stages.includes('image') ? ' 🖼️' : ''}</label>`).join('')}</div>
+    <div class="row small" style="margin-top:6px"><a href="#" id="all">เลือกทั้งหมด</a> · <a href="#" id="none">ไม่เลือกเลย</a> · 🖼️ = มีภาพท่าให้ทาย</div>
+    <label>ประเภทคำถาม</label><div class="checks"><label><input type="checkbox" name="k" value="quiz" checked> ตอบคำถาม (ปรนัย/ถูก-ผิด)</label><label><input type="checkbox" name="k" value="image" checked> ทายชื่อท่าจากภาพ</label></div>
+    <div class="grid g2"><div><label>จำนวนข้อ (1–30)</label><input type="number" id="cnt" min="1" max="30" value="10"></div><div><label>เวลาต่อข้อ (วินาที)</label><select id="sec"><option>10</option><option>15</option><option selected>20</option><option>30</option><option>45</option><option>60</option></select></div></div>
+    <p class="err" id="er"></p><button class="btn big gold" id="go">สร้างห้องเกม</button></div>
+    <p class="small muted">คะแนนต่อข้อ 500–1,000 ตามความเร็ว + โบนัสตอบถูกต่อเนื่องข้อละ 100 (สูงสุด 500) · นักศึกษาเข้าที่หน้า “เกมสด” แล้วกรอก PIN</p>`;
+  const cs = () => app.querySelectorAll('[name=ch]');
+  MT.$('#all').onclick = e => { e.preventDefault(); cs().forEach(c => c.checked = true); };
+  MT.$('#none').onclick = e => { e.preventDefault(); cs().forEach(c => c.checked = false); };
+  MT.$('#go').onclick = async () => {
+    const chapters = [...cs()].filter(c => c.checked).map(c => +c.value), kinds = [...app.querySelectorAll('[name=k]')].filter(c => c.checked).map(c => c.value);
+    try { const r = await A('admin/host/create', { chapters, kinds, count: +MT.$('#cnt').value, seconds: +MT.$('#sec').value }); PIN = r.pin; history.replaceState(null, '', '/host.html?pin=' + PIN); poll(); }
+    catch (e) { if (e.status === 401) return login('กรุณาเข้าสู่ระบบใหม่'); MT.$('#er').textContent = e.message; }
+  };
+}
+async function poll() {
+  clearTimeout(timer);
+  try { R = await A('admin/host/state?pin=' + PIN); R._at = Date.now(); }
+  catch (e) { if (e.status === 401) { MT.setAdminTok(null); TOK = null; return login('กรุณาเข้าสู่ระบบใหม่'); } if (e.status === 404) { PIN = ''; history.replaceState(null, '', '/host.html'); MT.toast(e.message); return boot(); } timer = setTimeout(poll, 3000); return; }
+  draw();
+  if (R.state === 'lobby' || R.state === 'question') timer = setTimeout(poll, 1500);
+}
+async function next(expect) {
+  if (busy || (expect && R.state !== expect)) return; busy = true; clearTimeout(autoT);
+  try { R = await A('admin/host/next', { pin: PIN, from: `${R.state}:${R.qi}` }); R._at = Date.now(); draw(); if (R.state === 'question') timer = setTimeout(poll, 1500); }
+  catch (e) { MT.toast(e.message); } finally { busy = false; }
+}
+function bar() {
+  return `<div class="row" style="justify-content:space-between;margin-bottom:12px"><div class="row"><span class="pill" style="font-size:16px">PIN <b>${R.pin}</b></span><span class="pill">👥 ${R.players.length} คน</span>${R.qi >= 0 ? `<span class="pill">ข้อ ${R.qi + 1}/${R.total}</span>` : ''}</div>
+  <div class="row"><button class="btn ghost" id="end" style="padding:6px 12px">จบเกม</button></div></div>`;
+}
+function bind() {
+  const e = MT.$('#end'); if (e) e.onclick = async () => { if (!confirm('จบเกมตอนนี้?')) return; R = await A('admin/host/end', { pin: PIN }); draw(); };
+  const n = MT.$('#nx'); if (n) n.onclick = () => next();
+}
+function draw() {
+  const k = [R.state, R.qi, R.state === 'lobby' ? R.players.map(p => p.sid).join() : '', R.state === 'question' ? R.answered : ''].join('|');
+  if (k === key) return; key = k; clearInterval(tick); clearTimeout(autoT);
+  const url = location.origin + '/play.html';
+  if (R.state === 'lobby') {
+    app.innerHTML = bar() + `<div class="card center screen"><div class="muted" style="font-size:20px">เข้าเว็บ <b>${E(url.replace(/^https?:\/\//, ''))}</b> → เมนู “เกมสด” แล้วกรอก PIN</div>
+      <div class="pinbig" style="margin:12px 0">${R.pin}</div><p class="muted">ผู้เล่น ${R.players.length} คน (คลิกชื่อเพื่อนำออก)</p>
+      <div class="chips" style="justify-content:center">${R.players.map(p => `<span class="chip" data-sid="${E(p.sid)}">${E(p.nick)}</span>`).join('') || '<span class="muted">รอผู้เล่น…</span>'}</div>
+      <div style="margin-top:20px"><button class="btn big" id="nx" ${R.players.length ? '' : 'disabled'}>เริ่มเกม ▶</button></div></div>`;
+    app.querySelectorAll('.chip').forEach(c => c.onclick = async () => { if (confirm('นำ ' + c.textContent + ' ออกจากห้อง?')) { R = await A('admin/host/kick', { pin: PIN, sid: c.dataset.sid }); key = ''; draw(); } });
+  } else if (R.state === 'question') {
+    const q = R.question; const end = R._at + q.remainMs;
+    app.innerHTML = bar() + `<div class="qbox screen"><div class="row" style="align-items:flex-start;gap:18px"><div style="flex:1">${q.img ? `<img class="qimg" src="${E(q.img)}" alt="" style="max-height:360px">` : ''}<div class="qtext">${E(q.q)}</div></div>
+      <div class="center"><div class="count" id="cd">${Math.ceil(q.remainMs / 1000)}</div><div style="margin-top:8px;font-weight:800;font-size:20px">${R.answered}/${R.players.length}</div><div class="small muted">ตอบแล้ว</div></div></div>
+      <div class="opts">${q.o.map((o, i) => `<div class="opt o${i}"><span class="sh">${MT.shapes[i]}</span><span>${E(o)}</span></div>`).join('')}</div>
+      <div style="text-align:right;margin-top:14px"><button class="btn dark" id="nx">เฉลยเลย ⏭</button></div></div>`;
+    const upd = () => { const left = Math.max(0, end - Date.now()); const c = MT.$('#cd'); if (c) c.textContent = Math.ceil(left / 1000); if (!left) { clearInterval(tick); autoT = setTimeout(() => next('question'), 900); } };
+    upd(); tick = setInterval(upd, 250);
+    if (R.players.length && R.answered >= R.players.length) autoT = setTimeout(() => next('question'), 700);
+  } else if (R.state === 'reveal') {
+    const q = R.question, rv = R.reveal, mx = Math.max(1, ...rv.dist);
+    app.innerHTML = bar() + `<div class="qbox screen"><div class="qtext">${E(q.q)}</div>
+      <div class="opts">${q.o.map((o, i) => `<div class="opt o${i} ${i === q.a ? 'right' : 'dim'}"><span class="sh">${i === q.a ? '✔' : MT.shapes[i]}</span><span style="flex:1">${E(o)}</span><b>${rv.dist[i]}</b></div>`).join('')}</div>
+      <div class="feedback ok" style="font-size:19px"><b>คำอธิบาย:</b> ${E(q.exp)} ${q.page ? `<span class="ref">📖 เอกสารประกอบการสอน หน้า ${q.page}</span>` : ''}</div>
+      <p class="muted">ตอบถูก ${Object.values(rv.per).filter(p => p.ok).length} จาก ${R.players.length} คน</p>
+      <div style="text-align:right"><button class="btn big" id="nx">${R.qi + 1 >= R.total ? 'ดูผลสุดท้าย 🏁' : 'ตารางคะแนน →'}</button></div></div>`;
+  } else if (R.state === 'board') {
+    app.innerHTML = bar() + `<div class="card screen"><h1>🏆 อันดับหลังข้อ ${R.qi + 1}</h1>${table(R.board)}<div style="text-align:right;margin-top:14px"><button class="btn big" id="nx">ข้อต่อไป ▶</button></div></div>`;
+  } else {
+    const t = R.board; const p = i => t[i] ? `<div class="p${i + 1}"><div class="medal">${['🥇', '🥈', '🥉'][i]}</div><div class="nm">${E(t[i].nick)}</div><div class="sc">${t[i].score} คะแนน</div></div>` : '';
+    app.innerHTML = `<div class="card center screen"><h1>🎉 จบเกม ห้อง ${R.pin}</h1><div class="podium">${p(1)}${p(0)}${p(2)}</div>${table(t)}
+      <div class="row" style="justify-content:center;margin-top:16px"><button class="btn gold" id="csv">ดาวน์โหลดผล (CSV)</button><button class="btn" id="new">สร้างเกมใหม่</button><a class="btn ghost" href="/admin.html">หน้าผู้ดูแล</a></div></div>`;
+    MT.$('#csv').onclick = async () => { const r = await MT.api('admin/game-csv?pin=' + PIN, undefined, { token: TOK, raw: true }); const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = 'live-' + PIN + '.csv'; a.click(); };
+    MT.$('#new').onclick = () => { PIN = ''; key = ''; history.replaceState(null, '', '/host.html'); boot(); };
+  }
+  bind();
+}
+const table = rows => `<table><tr><th class="rank">#</th><th>ชื่อเล่น</th><th>ตอบถูก</th><th>คะแนน</th></tr>${rows.map(r => `<tr><td class="rank">${r.rank <= 3 ? ['🥇', '🥈', '🥉'][r.rank - 1] : r.rank}</td><td>${E(r.nick)}${r.streak > 1 ? ` <span class="small">🔥${r.streak}</span>` : ''}</td><td>${r.correct}</td><td><b>${r.score}</b></td></tr>`).join('')}</table>`;
+boot();
+</script>
+</body></html>

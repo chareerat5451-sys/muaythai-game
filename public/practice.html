@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ฝึกคนเดียว | เกมทบทวนมวยไทย</title><link rel="stylesheet" href="/style.css"><script src="/app.js"></script></head>
+<body>
+<main class="wrap" id="app"></main>
+<script>
+MT.nav('practice');
+const app = MT.$('#app'); const E = MT.esc;
+let META = null, PROG = null, G = null; // G = รอบที่กำลังเล่น
+const ICON = { quiz: '❓', image: '🖼️', match: '🔗', order: '🔢' };
+
+async function boot() {
+  if (!MT.me()) return MT.loginForm(app, boot);
+  try {
+    META = META || await MT.api('meta');
+    PROG = (await MT.api('progress?sid=' + encodeURIComponent(MT.me().sid))).progress;
+  } catch (e) { if (e.status === 404) { MT.setMe(null); return MT.loginForm(app, boot); } app.innerHTML = `<p class="err">${E(e.message)}</p>`; return; }
+  showMap();
+}
+function showMap() {
+  G = null; const p = PROG;
+  const nextTxt = p.nextAt ? `อีก ${p.nextAt - p.stars} ดาว ขึ้นเป็น “${E(p.nextTitle)}”` : 'เลเวลสูงสุดแล้ว 🎉';
+  app.innerHTML = `<div class="card lvl" style="margin-bottom:16px"><div class="badge">${p.level}</div><div style="flex:1">
+    <div><b style="font-size:20px">${E(p.nick)}</b> <span class="pill">${E(p.title)}</span></div>
+    <div class="small muted">★ ${p.stars} / ${p.maxStars} ดาว · คะแนนสะสม ${p.points} · ${nextTxt}</div>
+    <div class="bar" style="margin-top:6px"><i style="width:${Math.round(p.stars / p.maxStars * 100)}%"></i></div></div></div>
+    <h2>เลือกบทและด่าน</h2><p class="muted small" style="margin-top:-6px">ได้ 3 ดาวเมื่อถูก 90% ขึ้นไป · 2 ดาว 70% · 1 ดาว 50% · ระบบเก็บผลที่ดีที่สุดของแต่ละด่าน</p>
+    <div class="grid g3">${META.map.map(c => `<div class="ch"><div class="no">บทที่ ${c.ch}</div><div class="tt">${E(c.title)}</div>
+      ${c.stages.map(s => { const r = p.stages[c.ch + '-' + s] || { stars: 0 }; return `<button class="stage" data-ch="${c.ch}" data-s="${s}"><span>${ICON[s]} ${META.stageName[s]}</span>${MT.starStr(r.stars)}</button>`; }).join('')}
+    </div>`).join('')}</div>`;
+  app.querySelectorAll('.stage').forEach(b => b.onclick = () => start(+b.dataset.ch, b.dataset.s));
+  scrollTo(0, 0);
+}
+async function start(ch, stage) {
+  app.innerHTML = '<p class="state-msg">กำลังเตรียมด่าน…</p>';
+  try { G = await MT.api('practice/start', { sid: MT.me().sid, ch, stage }); } catch (e) { MT.toast(e.message); return boot(); }
+  G.n = 0; G.okN = 0;
+  if (G.items) qView(); else if (stage === 'match') matchView(); else orderView();
+}
+function head(extra = '') {
+  return `<div class="row" style="justify-content:space-between;margin-bottom:10px"><button class="btn ghost" id="back">← แผนที่</button>
+    <div class="small"><b>บทที่ ${G.ch}</b> · ${ICON[G.stage]} ${E(G.stageName)} ${extra}</div></div>`;
+}
+// ---------- ตอบคำถาม / ทายภาพ ----------
+function qView() {
+  const it = G.items[G.n]; const tot = G.items.length;
+  app.innerHTML = head(`· ข้อ ${G.n + 1}/${tot}`) + `<div class="timer"><i style="width:${G.n / tot * 100}%;background:var(--gold)"></i></div>
+    <div class="qbox">${it.img ? `<img class="qimg" src="${E(it.img)}" alt="ภาพท่ามวยไทย">` : ''}
+    <div class="qtext">${it.type === 'tf' ? '<span class="pill">ถูก / ผิด</span><br>' : ''}${E(it.q)}</div>
+    ${it.cat ? `<p class="small muted" style="margin-top:-8px">หมวด: ${E(it.cat)}</p>` : ''}
+    <div class="opts">${it.o.map((o, i) => `<button class="opt o${i}" data-i="${i}"><span class="sh">${MT.shapes[i]}</span><span>${E(o)}</span></button>`).join('')}</div>
+    <div id="fb"></div></div>`;
+  MT.$('#back').onclick = () => confirm('ออกจากด่านนี้? ผลรอบนี้จะไม่ถูกบันทึก') && showMap();
+  app.querySelectorAll('.opt').forEach(b => b.onclick = () => answer(+b.dataset.i));
+}
+async function answer(i) {
+  const bs = app.querySelectorAll('.opt'); bs.forEach(b => b.disabled = true);
+  let r; try { r = await MT.api('practice/answer', { token: G.token, n: G.n, choice: i }); } catch (e) { MT.toast(e.message); bs.forEach(b => b.disabled = false); return; }
+  if (r.correct) G.okN++;
+  bs.forEach((b, k) => { b.classList.add(k === r.answer ? 'right' : 'dim'); if (k === i && !r.correct) b.classList.add('wrong'); });
+  const last = G.n + 1 >= G.items.length;
+  MT.$('#fb').innerHTML = `<div class="feedback ${r.correct ? 'ok' : 'no'}"><div class="h">${r.correct ? '✅ ถูกต้อง!' : '❌ ยังไม่ถูก'}</div>
+    <div>${E(r.exp)}</div>${r.page ? `<span class="ref">📖 เอกสารประกอบการสอน หน้า ${r.page}</span>` : ''}</div>
+    <div style="text-align:right;margin-top:12px"><button class="btn big" id="nx">${last ? 'ดูผล 🏁' : 'ข้อต่อไป →'}</button></div>`;
+  MT.$('#nx').focus();
+  MT.$('#nx').onclick = () => { if (last) finish({}); else { G.n++; qView(); } };
+}
+// ---------- จับคู่ ----------
+function matchView() {
+  G.pairs = G.left.map(() => -1); let sel = null;
+  const COL = ['#d7263d', '#1b6ec2', '#e0a100', '#2a9d4b', '#7b3fa0', '#e86a1c', '#0f8b8d'];
+  function draw() {
+    const used = new Map(G.pairs.map((r, l) => [r, l]).filter(([r]) => r >= 0));
+    app.innerHTML = head() + `<div class="qbox"><div class="qtext">${E(G.title)}</div>
+      <p class="muted small" style="margin-top:-8px">แตะรายการทางซ้าย แล้วแตะคำตอบทางขวาที่คู่กัน (แตะรายการที่จับคู่แล้วเพื่อเปลี่ยน)</p>
+      <div class="match"><div>${G.left.map((t, l) => { const p = G.pairs[l] >= 0; return `<button class="mi ${sel === l ? 'sel' : ''}" data-l="${l}"><span class="tag" style="${p ? 'background:' + COL[l % COL.length] : ''}">${l + 1}</span>${E(t)}</button>`; }).join('')}</div>
+      <div>${G.right.map((t, r) => { const l = used.get(r); return `<button class="mi" data-r="${r}"><span class="tag" style="${l !== undefined ? 'background:' + COL[l % COL.length] : ''}">${l !== undefined ? l + 1 : '·'}</span>${E(t)}</button>`; }).join('')}</div></div>
+      <div style="text-align:right;margin-top:10px"><button class="btn big" id="sub" ${G.pairs.includes(-1) ? 'disabled' : ''}>ส่งคำตอบ</button></div></div>`;
+    MT.$('#back').onclick = () => confirm('ออกจากด่านนี้?') && showMap();
+    app.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { const l = +b.dataset.l; if (G.pairs[l] >= 0) G.pairs[l] = -1; sel = l; draw(); });
+    app.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { const r = +b.dataset.r; const l = used.get(r); if (sel === null) { if (l !== undefined) { G.pairs[l] = -1; draw(); } else MT.toast('แตะรายการทางซ้ายก่อน'); return; } if (l !== undefined) G.pairs[l] = -1; G.pairs[sel] = r; sel = G.pairs.indexOf(-1) >= 0 ? G.pairs.indexOf(-1) : null; draw(); });
+    MT.$('#sub').onclick = () => finish({ pairs: G.pairs });
+  }
+  sel = 0; draw();
+}
+// ---------- เรียงลำดับ ----------
+function orderView() {
+  G.cur = G.list.map((_, i) => i); let dragI = null;
+  function draw() {
+    app.innerHTML = head() + `<div class="qbox"><div class="qtext">${E(G.title)}</div>
+      <p class="muted small" style="margin-top:-8px">เรียงจากบนลงล่างให้ถูกลำดับ ใช้ปุ่ม ▲ ▼ หรือลากวาง</p>
+      <ol class="ord">${G.cur.map((k, i) => `<li draggable="true" data-i="${i}"><span class="n">${i + 1}</span><span class="tx">${E(G.list[k])}</span><span class="mv"><button data-u="${i}" aria-label="เลื่อนขึ้น">▲</button><button data-d="${i}" aria-label="เลื่อนลง">▼</button></span></li>`).join('')}</ol>
+      <div style="text-align:right;margin-top:10px"><button class="btn big" id="sub">ส่งคำตอบ</button></div></div>`;
+    MT.$('#back').onclick = () => confirm('ออกจากด่านนี้?') && showMap();
+    const sw = (a, b) => { if (b < 0 || b >= G.cur.length) return; [G.cur[a], G.cur[b]] = [G.cur[b], G.cur[a]]; draw(); };
+    app.querySelectorAll('[data-u]').forEach(b => b.onclick = () => sw(+b.dataset.u, +b.dataset.u - 1));
+    app.querySelectorAll('[data-d]').forEach(b => b.onclick = () => sw(+b.dataset.d, +b.dataset.d + 1));
+    app.querySelectorAll('.ord li').forEach(li => {
+      li.ondragstart = () => { dragI = +li.dataset.i; li.classList.add('drag'); };
+      li.ondragover = e => e.preventDefault();
+      li.ondrop = e => { e.preventDefault(); const to = +li.dataset.i; if (dragI === null || dragI === to) return; const [m] = G.cur.splice(dragI, 1); G.cur.splice(to, 0, m); dragI = null; draw(); };
+    });
+    MT.$('#sub').onclick = () => finish({ order: G.cur });
+  }
+  draw();
+}
+// ---------- สรุปผล ----------
+async function finish(extra) {
+  let r; try { r = await MT.api('practice/finish', { token: G.token, ...extra }); } catch (e) { MT.toast(e.message); return; }
+  PROG = r.progress;
+  let detail = '';
+  if (G.stage === 'match') {
+    detail = `<h3>เฉลย</h3>${r.detail.solution.map((p, l) => { const ok = r.detail.pairs[l] === r.detail.key[l]; return `<div class="mi ${ok ? 'ok' : 'bad'}" style="cursor:default"><span class="tag" style="background:${ok ? 'var(--ok)' : 'var(--bad)'}">${ok ? '✓' : '✗'}</span><span><b>${E(p[0])}</b> — ${E(p[1])}${ok ? '' : `<br><span class="small muted">คุณจับคู่กับ: ${E(G.right[r.detail.pairs[l]] ?? '-')}</span>`}</span></div>`; }).join('')}`;
+  } else if (G.stage === 'order') {
+    detail = `<h3>ลำดับที่ถูกต้อง</h3><ol class="ord">${r.detail.solution.map((t, i) => `<li class="${r.detail.placedOk[i] ? 'ok' : 'bad'}"><span class="n">${i + 1}</span><span class="tx">${E(t)}</span><span>${r.detail.placedOk[i] ? '✓' : '✗'}</span></li>`).join('')}</ol>`;
+  }
+  const idx = META.map.findIndex(c => c.ch === G.ch); const c = META.map[idx];
+  const si = c.stages.indexOf(G.stage); const nxt = c.stages[si + 1] ? [G.ch, c.stages[si + 1]] : META.map[idx + 1] ? [META.map[idx + 1].ch, 'quiz'] : null;
+  const msg = r.stars === 3 ? 'ยอดเยี่ยม! หมัดหนักแบบแชมป์' : r.stars === 2 ? 'เก่งมาก อีกนิดเดียวได้ 3 ดาว' : r.stars === 1 ? 'ผ่านแล้ว ลองอีกครั้งเพื่อเก็บดาวเพิ่ม' : 'ยังไม่ผ่าน ทบทวนเอกสารแล้วลองใหม่นะ';
+  app.innerHTML = `<div class="qbox center"><div class="small muted">บทที่ ${G.ch} · ${E(G.stageName)}</div>
+    <div class="bigstars">${[0, 1, 2].map(i => `<span class="${i < r.stars ? '' : 'off'}">★</span>`).join('')}</div>
+    <h2>${msg}</h2><p style="font-size:20px">ถูก <b>${r.correct}</b> จาก ${r.total} (${r.pct}%)</p>
+    ${r.newStars ? `<p class="pill" style="font-size:15px">+${r.newStars} ดาวใหม่</p>` : r.newBest ? '<p class="pill">ทำสถิติใหม่ของด่านนี้</p>' : ''}
+    ${r.levelUp ? `<p style="font-size:22px;font-weight:800;color:var(--red)">🎉 เลเวลอัป! ตอนนี้คุณคือ “${E(PROG.title)}”</p>` : ''}
+    <div class="row" style="justify-content:center;margin-top:12px"><button class="btn" id="again">เล่นอีกครั้ง</button>${nxt ? '<button class="btn gold" id="next">ด่านถัดไป →</button>' : ''}<button class="btn ghost" id="map">กลับแผนที่</button></div>
+    <div style="text-align:left;margin-top:16px">${detail}</div></div>`;
+  MT.$('#again').onclick = () => start(G.ch, G.stage);
+  MT.$('#map').onclick = showMap;
+  if (nxt) MT.$('#next').onclick = () => start(nxt[0], nxt[1]);
+  scrollTo(0, 0);
+}
+boot();
+</script>
+</body></html>

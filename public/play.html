@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>เกมสด | เกมทบทวนมวยไทย</title><link rel="stylesheet" href="/style.css"><script src="/app.js"></script></head>
+<body>
+<main class="wrap" id="app" style="max-width:760px"></main>
+<script>
+MT.nav('play');
+const app = MT.$('#app'); const E = MT.esc;
+let PIN = new URLSearchParams(location.search).get('pin') || '', S = null, lastKey = '', timer = null, tick = null, sent = {};
+
+function pinForm(msg = '') {
+  app.innerHTML = `<div class="card center" style="max-width:440px;margin:20px auto"><h2>เข้าร่วมเกมสด</h2>
+    <p class="muted">ผู้เล่น: <b>${E(MT.me().nick)}</b> (${E(MT.me().sid)}) · <a href="#" id="sw">เปลี่ยน</a></p>
+    <form id="f"><input id="pin" inputmode="numeric" maxlength="6" placeholder="PIN 6 หลัก" value="${E(PIN)}" style="font-size:34px;text-align:center;letter-spacing:8px">
+    <p class="err">${E(msg)}</p><button class="btn big" style="width:100%">เข้าห้อง ⚡</button></form></div>`;
+  MT.$('#sw').onclick = e => { e.preventDefault(); MT.loginForm(app, () => pinForm(), 'เปลี่ยนผู้เล่น'); };
+  MT.$('#f').onsubmit = e => { e.preventDefault(); PIN = MT.$('#pin').value.replace(/\D/g, ''); join(); };
+}
+async function join() {
+  if (!MT.me()) return MT.loginForm(app, join);
+  if (!/^\d{6}$/.test(PIN)) return pinForm();
+  try { await MT.api('live/join', { pin: PIN, sid: MT.me().sid, nick: MT.me().nick }); }
+  catch (e) { return pinForm(e.message); }
+  history.replaceState(null, '', '/play.html?pin=' + PIN);
+  poll();
+}
+async function poll() {
+  clearTimeout(timer);
+  try { S = await MT.api(`live/state?pin=${PIN}&sid=${encodeURIComponent(MT.me().sid)}`); S._at = Date.now(); }
+  catch (e) { if (e.status === 403 || e.status === 404) { clearInterval(tick); return pinForm(e.message); } timer = setTimeout(poll, 3000); return; }
+  if (S.state === 'question' && sent[S.qi]) S.answered = true;
+  const key = [S.state, S.qi, S.answered].join(':');
+  if (key !== lastKey) { lastKey = key; render(); }
+  if (S.state !== 'ended') timer = setTimeout(poll, S.state === 'lobby' ? 3000 : 2000);
+}
+const meLine = () => `<div class="row small" style="justify-content:space-between;margin-bottom:10px"><span>👤 <b>${E(MT.me().nick)}</b></span><span>คะแนน <b>${S.me.score}</b>${S.me.rank ? ` · อันดับ ${S.me.rank}/${S.me.players}` : ''}${S.me.streak > 1 ? ` · 🔥 ${S.me.streak}` : ''}</span></div>`;
+function render() {
+  clearInterval(tick);
+  if (S.state === 'lobby') {
+    app.innerHTML = `<div class="card center" style="margin-top:20px"><div style="font-size:60px">🥊</div><h2>เข้าห้องแล้ว!</h2>
+      <p style="font-size:20px">ชื่อของคุณบนจอ: <b>${E(MT.me().nick)}</b></p><p class="muted">รออาจารย์เริ่มเกม… ห้อง ${PIN}</p></div>`;
+  } else if (S.state === 'question') {
+    const q = S.question;
+    if (S.answered) { app.innerHTML = meLine() + `<div class="card state-msg">✔️ ส่งคำตอบแล้ว<br><span class="muted" style="font-size:18px">รอเฉลยบนจอ…</span></div>`; return; }
+    app.innerHTML = meLine() + `<div class="small muted">ข้อ ${q.qi + 1}/${S.total}</div><div class="timer"><i id="tb" style="width:100%"></i></div>
+      <div class="qbox">${q.img ? `<img class="qimg" src="${E(q.img)}" alt="ภาพท่า">` : ''}<div class="qtext">${E(q.q)}</div>
+      <div class="opts">${q.o.map((o, i) => `<button class="opt o${i}" data-i="${i}"><span class="sh">${MT.shapes[i]}</span><span>${E(o)}</span></button>`).join('')}</div></div>`;
+    app.querySelectorAll('.opt').forEach(b => b.onclick = () => send(+b.dataset.i));
+    const end = S._at + q.remainMs;
+    const upd = () => { const left = Math.max(0, end - Date.now()); const tb = MT.$('#tb'); if (tb) tb.style.width = (left / (q.seconds * 1000) * 100) + '%'; if (!left) { clearInterval(tick); app.querySelectorAll('.opt').forEach(b => b.disabled = true); } };
+    upd(); tick = setInterval(upd, 250);
+  } else if (S.state === 'reveal') {
+    const r = S.reveal, m = r.mine;
+    app.innerHTML = meLine() + `<div class="feedback ${m.ok ? 'ok' : 'no'} center"><div style="font-size:54px">${m.ok ? '✅' : m.answered ? '❌' : '⏰'}</div>
+      <div class="h">${m.ok ? `ถูกต้อง! +${m.gain}` : m.answered ? 'ยังไม่ถูก' : 'ไม่ทันเวลา'}</div></div>
+      <div class="qbox" style="margin-top:12px"><div class="small muted">คำตอบที่ถูก</div><div class="qtext">${MT.shapes[r.a]} ${E(S.question.o[r.a])}</div>
+      <div>${E(r.exp)}</div>${r.page ? `<span class="ref">📖 เอกสารประกอบการสอน หน้า ${r.page}</span>` : ''}</div>`;
+  } else if (S.state === 'board') {
+    app.innerHTML = meLine() + `<div class="card"><h2>🏆 อันดับหลังข้อ ${S.qi + 1}</h2>${list(S.top)}</div>`;
+  } else if (S.state === 'ended') {
+    const t = S.top; const p = i => t[i] ? `<div class="p${i + 1}"><div class="medal">${['🥇', '🥈', '🥉'][i]}</div><div class="nm">${E(t[i].nick)}</div><div class="sc">${t[i].score}</div></div>` : '';
+    app.innerHTML = `<div class="card center"><h2>จบเกม!</h2><div class="podium">${p(1)}${p(0)}${p(2)}</div>
+      <p style="font-size:20px">คุณได้อันดับ <b>${S.me.rank || '-'}</b> จาก ${S.me.players} คน · ${S.me.score} คะแนน · ตอบถูก ${S.me.correct}/${S.total} ข้อ</p>
+      ${list(t)}<div class="row" style="justify-content:center;margin-top:14px"><a class="btn" href="/practice.html">ไปฝึกต่อ ⭐</a><a class="btn ghost" href="/">หน้าแรก</a></div></div>`;
+  }
+}
+const list = rows => `<table><tr><th class="rank">#</th><th>ชื่อเล่น</th><th>คะแนน</th></tr>${rows.map(r => `<tr class="${r.nick === MT.me().nick ? 'me' : ''}"><td class="rank">${r.rank}</td><td>${E(r.nick)}</td><td>${r.score}</td></tr>`).join('')}</table>`;
+async function send(i) {
+  const qi = S.qi; app.querySelectorAll('.opt').forEach(b => { b.disabled = true; if (+b.dataset.i !== i) b.classList.add('dim'); });
+  try { await MT.api('live/answer', { pin: PIN, sid: MT.me().sid, qi, choice: i }); sent[qi] = true; S.answered = true; lastKey = [S.state, S.qi, true].join(':'); render(); }
+  catch (e) { MT.toast(e.message); poll(); }
+}
+if (!MT.me()) MT.loginForm(app, () => PIN ? join() : pinForm()); else if (PIN) join(); else pinForm();
+</script>
+</body></html>

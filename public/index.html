@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>เกมทบทวนมวยไทย | พล 032437</title><link rel="stylesheet" href="/style.css"><script src="/app.js"></script>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥊</text></svg>"></head>
+<body>
+<main class="wrap">
+  <section class="hero">
+    <h1>สังเวียนทบทวนมวยไทย</h1>
+    <p>ทบทวนเนื้อหา 12 บท ผ่านเกมตอบคำถาม ทายท่าจากภาพ จับคู่ และเรียงลำดับ สะสมดาว ไต่เลเวล และแข่งกันในชั้นเรียน</p>
+  </section>
+  <div id="who"></div>
+  <div class="grid g3" style="margin-top:16px">
+    <div class="mcard">
+      <div class="ic">⚡</div><h3>เข้าร่วมเกมสด</h3>
+      <p class="muted small">กรอกรหัส PIN 6 หลักที่อาจารย์แสดงบนจอ</p>
+      <form id="pinf" class="row"><input id="pin" inputmode="numeric" maxlength="6" placeholder="PIN" style="flex:1;min-width:120px;font-size:22px;letter-spacing:4px;text-align:center"><button class="btn">เข้าห้อง</button></form>
+    </div>
+    <a class="mcard" href="/practice.html"><div class="ic">⭐</div><h3>ฝึกคนเดียว</h3><p class="muted small">เลือกบทและด่าน เก็บดาวได้ด่านละ 3 ดวง ดูคำอธิบายและเลขหน้าในเอกสารทุกข้อ</p></a>
+    <a class="mcard" href="/board.html"><div class="ic">🏆</div><h3>อันดับรวม</h3><p class="muted small">ตารางอันดับจากคะแนนสะสมของการฝึกทุกด่าน</p></a>
+  </div>
+  <p class="foot">ทักษะและการสอนกีฬามวยไทย (พล 032437) · เนื้อหาจากเอกสารประกอบการสอนรายวิชา</p>
+</main>
+<script>
+MT.nav('index');
+const who = MT.$('#who');
+async function show() {
+  const p = MT.me();
+  if (!p) { who.innerHTML = `<div class="card row" style="justify-content:space-between"><div><b>ยังไม่ได้เข้าสู่ระบบ</b><div class="muted small">ใช้รหัสนักศึกษาและชื่อเล่นเพื่อเริ่มเก็บดาว</div></div><button class="btn gold" id="lg">เข้าสู่ระบบผู้เล่น</button></div>`; MT.$('#lg').onclick = () => MT.loginForm(who, show); return; }
+  let g = null; try { g = (await MT.api('progress?sid=' + encodeURIComponent(p.sid))).progress; } catch {}
+  const st = g ? g.stars : 0, mx = g ? g.maxStars : 1;
+  const nextTxt = g && g.nextAt ? `อีก ${g.nextAt - st} ดาว ขึ้นเป็น “${g.nextTitle}”` : 'เลเวลสูงสุดแล้ว';
+  who.innerHTML = `<div class="card lvl"><div class="badge">${g ? g.level : 1}</div><div style="flex:1">
+    <div class="row" style="justify-content:space-between"><div><b style="font-size:20px">${MT.esc(p.nick)}</b> <span class="pill">${g ? MT.esc(g.title) : 'นักมวยฝึกหัด'}</span></div><button class="btn ghost" id="sw" style="padding:6px 12px">เปลี่ยนผู้เล่น</button></div>
+    <div class="row small muted" style="margin:4px 0"><span>★ ${st} / ${mx} ดาว</span><span>· คะแนนสะสม ${g ? g.points : 0}</span><span>· ${nextTxt}</span></div>
+    <div class="bar"><i style="width:${Math.round(st / mx * 100)}%"></i></div></div></div>`;
+  MT.$('#sw').onclick = () => { MT.setMe(null); show(); };
+}
+show();
+MT.$('#pinf').onsubmit = e => { e.preventDefault(); const v = MT.$('#pin').value.replace(/\D/g, ''); if (v.length === 6) location.href = '/play.html?pin=' + v; else MT.toast('PIN ต้องเป็นตัวเลข 6 หลัก'); };
+</script>
+</body></html>
